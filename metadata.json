@@ -1,0 +1,6 @@
+{
+  "name": "COLMAP 3D Viewer",
+  "description": "A web-based 3D viewer for COLMAP reconstruction data, supporting point clouds and camera poses.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
