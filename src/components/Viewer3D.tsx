@@ -1,7 +1,7 @@
-import React, { useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
+import React, { useEffect, useRef, useImperativeHandle, forwardRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { ColmapData, ColmapPoint3D, ColmapImage } from '../types';
+import { ColmapData, ColmapPoint3D, ColmapImage, Measurement } from '../types';
 
 interface Viewer3DProps {
   data: ColmapData | null;
@@ -9,10 +9,13 @@ interface Viewer3DProps {
   showCameras?: boolean;
   cameraInterval?: number;
   flipY?: boolean;
+  isMeasurementMode?: boolean;
+  onMeasurementUpdate?: (measurement: Measurement | null) => void;
 }
 
 export interface Viewer3DRef {
   resetView: () => void;
+  clearMeasurement: () => void;
 }
 
 /**
@@ -23,7 +26,9 @@ export const Viewer3D = forwardRef<Viewer3DRef, Viewer3DProps>(({
   pointSize = 0.05,
   showCameras = true,
   cameraInterval = 1,
-  flipY = true
+  flipY = true,
+  isMeasurementMode = false,
+  onMeasurementUpdate
 }, ref) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -32,8 +37,10 @@ export const Viewer3D = forwardRef<Viewer3DRef, Viewer3DProps>(({
   const controlsRef = useRef<OrbitControls | null>(null);
   const pointsRef = useRef<THREE.Points | null>(null);
   const cameraGroupRef = useRef<THREE.Group | null>(null);
+  const measurementGroupRef = useRef<THREE.Group | null>(null);
 
-  const [isInitialized, setIsInitialized] = React.useState(false);
+  const [isInitialized, setIsInitialized] = useState(false);
+  const [measurementPoints, setMeasurementPoints] = useState<THREE.Vector3[]>([]);
 
   /**
    * Resets the camera view to fit all objects in the scene.
@@ -69,9 +76,96 @@ export const Viewer3D = forwardRef<Viewer3DRef, Viewer3DProps>(({
     controlsRef.current.update();
   };
 
+  const clearMeasurement = () => {
+    setMeasurementPoints([]);
+    if (onMeasurementUpdate) onMeasurementUpdate(null);
+    if (measurementGroupRef.current) {
+      measurementGroupRef.current.clear();
+    }
+  };
+
   useImperativeHandle(ref, () => ({
-    resetView
+    resetView,
+    clearMeasurement
   }));
+
+  // Handle Measurement Clicks
+  useEffect(() => {
+    if (!isMeasurementMode || !containerRef.current || !cameraRef.current || !rendererRef.current || !sceneRef.current) return;
+
+    const raycaster = new THREE.Raycaster();
+    // Set threshold for point cloud raycasting based on point size
+    raycaster.params.Points.threshold = pointSize * 2;
+
+    const handleClick = (event: MouseEvent) => {
+      if (!containerRef.current || !cameraRef.current || !pointsRef.current) return;
+
+      const rect = containerRef.current.getBoundingClientRect();
+      const mouse = new THREE.Vector2(
+        ((event.clientX - rect.left) / rect.width) * 2 - 1,
+        -((event.clientY - rect.top) / rect.height) * 2 + 1
+      );
+
+      raycaster.setFromCamera(mouse, cameraRef.current);
+      const intersects = raycaster.intersectObject(pointsRef.current);
+
+      if (intersects.length > 0) {
+        const point = intersects[0].point.clone();
+        setMeasurementPoints(prev => {
+          const next = prev.length >= 2 ? [point] : [...prev, point];
+          
+          if (next.length === 2 && onMeasurementUpdate) {
+            const distance = next[0].distanceTo(next[1]);
+            onMeasurementUpdate({
+              start: { x: next[0].x, y: next[0].y, z: next[0].z },
+              end: { x: next[1].x, y: next[1].y, z: next[1].z },
+              distance
+            });
+          } else if (next.length === 1 && onMeasurementUpdate) {
+            onMeasurementUpdate(null);
+          }
+          
+          return next;
+        });
+      }
+    };
+
+    const container = containerRef.current;
+    container.addEventListener('click', handleClick);
+    return () => container.removeEventListener('click', handleClick);
+  }, [isMeasurementMode, pointSize, onMeasurementUpdate]);
+
+  // Render Measurement Visuals
+  useEffect(() => {
+    if (!sceneRef.current) return;
+
+    if (!measurementGroupRef.current) {
+      measurementGroupRef.current = new THREE.Group();
+      sceneRef.current.add(measurementGroupRef.current);
+    }
+
+    const group = measurementGroupRef.current;
+    group.clear();
+
+    if (measurementPoints.length > 0) {
+      // Points
+      measurementPoints.forEach(p => {
+        const sphereGeom = new THREE.SphereGeometry(pointSize * 2, 16, 16);
+        const sphereMat = new THREE.MeshBasicMaterial({ color: 0xff4e00 });
+        const sphere = new THREE.Mesh(sphereGeom, sphereMat);
+        sphere.position.copy(p);
+        group.add(sphere);
+      });
+
+      // Line
+      if (measurementPoints.length === 2) {
+        const lineGeom = new THREE.BufferGeometry().setFromPoints(measurementPoints);
+        const lineMat = new THREE.LineBasicMaterial({ color: 0xff4e00, linewidth: 2 });
+        const line = new THREE.Line(lineGeom, lineMat);
+        group.add(line);
+      }
+    }
+  }, [measurementPoints, pointSize]);
 
   // Initialize Three.js Scene
   useEffect(() => {
@@ -304,7 +398,7 @@ export const Viewer3D = forwardRef<Viewer3DRef, Viewer3DProps>(({
   return (
     <div 
       ref={containerRef} 
-      className="w-full h-full min-h-[500px] rounded-lg overflow-hidden border border-white/10 bg-black"
+      className={`w-full h-full min-h-[500px] rounded-lg overflow-hidden border border-white/10 bg-black ${isMeasurementMode ? 'cursor-crosshair' : 'cursor-default'}`}
       id="three-container"
     />
   );

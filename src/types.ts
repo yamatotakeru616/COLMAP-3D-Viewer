@@ -36,3 +36,9 @@ export interface ColmapData {
   images: Map<number, ColmapImage>;
   points3D: Map<number, ColmapPoint3D>;
 }
+
+export interface Measurement {
+  start: { x: number; y: number; z: number };
+  end: { x: number; y: number; z: number };
+  distance: number;
+}

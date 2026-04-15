@@ -12,11 +12,12 @@ import {
   Maximize2,
   RefreshCw,
   Sparkles,
-  FileArchive
+  FileArchive,
+  Ruler
 } from "lucide-react";
 import { Viewer3D, Viewer3DRef } from "./components/Viewer3D";
 import { parseColmapData } from "./lib/colmap-parser";
-import { ColmapData, ColmapImage, ColmapPoint3D } from "./types";
+import { ColmapData, ColmapImage, ColmapPoint3D, Measurement } from "./types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Slider } from "@/components/ui/slider";
@@ -35,6 +36,8 @@ export default function App() {
   const [activeTab, setActiveTab] = useState("view");
   const [error, setError] = useState<string | null>(null);
   const [webglSupported, setWebglSupported] = useState(true);
+  const [isMeasurementMode, setIsMeasurementMode] = useState(false);
+  const [currentMeasurement, setCurrentMeasurement] = useState<Measurement | null>(null);
   const viewerRef = useRef<Viewer3DRef>(null);
 
   useEffect(() => {
@@ -320,6 +323,63 @@ export default function App() {
                   </div>
                 </section>
 
+                {/* Measurement Section */}
+                <section className="space-y-3">
+                  <div className="flex items-center justify-between mb-1">
+                    <Label className="col-header">Tools</Label>
+                  </div>
+                  <div className="space-y-3">
+                    <div 
+                      className={`flex items-center justify-between p-3 rounded border transition-colors cursor-pointer ${
+                        isMeasurementMode 
+                          ? "bg-emerald-500/10 border-emerald-500/50 text-emerald-400" 
+                          : "bg-white/5 border-white/5 text-white/70 hover:bg-white/10"
+                      }`}
+                      onClick={() => {
+                        const next = !isMeasurementMode;
+                        setIsMeasurementMode(next);
+                        if (!next) {
+                          viewerRef.current?.clearMeasurement();
+                        }
+                      }}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Ruler className={`w-4 h-4 ${isMeasurementMode ? "text-emerald-400" : "text-white/40"}`} />
+                        <span className="text-xs font-medium">Distance Measurement</span>
+                      </div>
+                      <div className={`w-2 h-2 rounded-full ${isMeasurementMode ? "bg-emerald-500 animate-pulse" : "bg-white/10"}`} />
+                    </div>
+
+                    {isMeasurementMode && currentMeasurement && (
+                      <div className="bg-emerald-500/5 border border-emerald-500/20 rounded p-3 space-y-2 animate-in fade-in slide-in-from-top-1">
+                        <div className="flex justify-between items-center text-[10px] uppercase tracking-wider text-emerald-500/60 font-bold">
+                          <span>Measured Distance</span>
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className="h-4 px-1 text-[9px] hover:bg-emerald-500/10"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              viewerRef.current?.clearMeasurement();
+                            }}
+                          >
+                            Clear
+                          </Button>
+                        </div>
+                        <p className="text-2xl font-mono text-emerald-400">
+                          {currentMeasurement.distance.toFixed(4)} <span className="text-xs text-emerald-500/40">units</span>
+                        </p>
+                      </div>
+                    )}
+                    
+                    {isMeasurementMode && !currentMeasurement && (
+                      <p className="text-[10px] text-white/30 italic px-1">
+                        Click two points in the 3D view to measure distance.
+                      </p>
+                    )}
+                  </div>
+                </section>
+
                 {/* Controls Section */}
                 <section className="space-y-4">
                   <Label className="col-header mb-3 block">Display Settings</Label>
@@ -505,6 +565,8 @@ export default function App() {
                 showCameras={showCameras} 
                 cameraInterval={cameraInterval}
                 flipY={flipY} 
+                isMeasurementMode={isMeasurementMode}
+                onMeasurementUpdate={setCurrentMeasurement}
               />
             ) : (
               <div className="absolute inset-0 flex flex-col items-center justify-center text-white/20">
@@ -551,104 +613,106 @@ export default function App() {
               </div>
             )
           ) : (
-            <div className="p-8 max-w-4xl mx-auto w-full">
-              <h2 className="text-2xl font-bold mb-6 flex items-center gap-2">
-                <FileText className="w-6 h-6 text-emerald-500" />
-                Data Explorer
-              </h2>
+            <ScrollArea className="h-full w-full">
+              <div className="p-8 max-w-4xl mx-auto w-full">
+                <h2 className="text-2xl font-bold mb-6 flex items-center gap-2">
+                  <FileText className="w-6 h-6 text-emerald-500" />
+                  Data Explorer
+                </h2>
 
-              <Card className="bg-white/5 border-white/10 mb-8">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium flex items-center gap-2">
-                    <Info className="w-4 h-4 text-emerald-500" />
-                    How to use this viewer
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4 text-sm text-white/60 leading-relaxed">
-                  <p>
-                    This viewer supports 3D reconstructions exported from <strong>COLMAP</strong> or <strong>RealityScan</strong>.
-                  </p>
-                  <div className="flex flex-wrap gap-8">
-                    <div className="space-y-2">
-                      <p className="font-medium text-white/80">Required Files:</p>
-                      <ul className="list-disc list-inside space-y-1 font-mono text-xs">
-                        <li>cameras.txt / .bin</li>
-                        <li>images.txt / .bin</li>
-                        <li>points3D.txt / .bin</li>
-                      </ul>
+                <Card className="bg-white/5 border-white/10 mb-8">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium flex items-center gap-2">
+                      <Info className="w-4 h-4 text-emerald-500" />
+                      How to use this viewer
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4 text-sm text-white/60 leading-relaxed">
+                    <p>
+                      This viewer supports 3D reconstructions exported from <strong>COLMAP</strong> or <strong>RealityScan</strong>.
+                    </p>
+                    <div className="flex flex-wrap gap-8">
+                      <div className="space-y-2">
+                        <p className="font-medium text-white/80">Required Files:</p>
+                        <ul className="list-disc list-inside space-y-1 font-mono text-xs">
+                          <li>cameras.txt / .bin</li>
+                          <li>images.txt / .bin</li>
+                          <li>points3D.txt / .bin</li>
+                        </ul>
+                      </div>
+                      <div className="space-y-2">
+                        <p className="font-medium text-white/80">Upload Method:</p>
+                        <p className="text-xs">Select all files at once or upload a <strong>.zip</strong> archive.</p>
+                      </div>
                     </div>
-                    <div className="space-y-2">
-                      <p className="font-medium text-white/80">Upload Method:</p>
-                      <p className="text-xs">Select all files at once or upload a <strong>.zip</strong> archive.</p>
-                    </div>
+                  </CardContent>
+                </Card>
+                
+                {!data ? (
+                  <p className="text-white/40 italic">No data loaded yet.</p>
+                ) : (
+                  <div className="space-y-8">
+                    <section>
+                      <h3 className="col-header mb-4">Recent Camera Poses</h3>
+                      <div className="border border-white/10 rounded-lg overflow-hidden">
+                        <div className="data-row bg-white/5 font-bold">
+                          <div className="col-header">ID</div>
+                          <div className="col-header">Image Name</div>
+                          <div className="col-header">Translation</div>
+                          <div className="col-header">Quaternion</div>
+                        </div>
+                        {Array.from(data.images.values()).slice(0, 10).map((img: ColmapImage) => {
+                          if (!img) return null;
+                          return (
+                            <div key={img.id} className="data-row">
+                              <div className="data-value text-white/40">{img.id}</div>
+                              <div className="font-medium">{img.name}</div>
+                              <div className="data-value text-xs">
+                                {(img.tx ?? 0).toFixed(2)}, {(img.ty ?? 0).toFixed(2)}, {(img.tz ?? 0).toFixed(2)}
+                              </div>
+                              <div className="data-value text-xs text-white/40">
+                                {(img.qw ?? 0).toFixed(2)}, {(img.qx ?? 0).toFixed(2)}...
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </section>
+
+                    <section>
+                      <h3 className="col-header mb-4">Point Cloud Samples</h3>
+                      <div className="border border-white/10 rounded-lg overflow-hidden">
+                        <div className="data-row bg-white/5 font-bold">
+                          <div className="col-header">ID</div>
+                          <div className="col-header">Position (X, Y, Z)</div>
+                          <div className="col-header">Color (R, G, B)</div>
+                          <div className="col-header">Error</div>
+                        </div>
+                        {Array.from(data.points3D.values()).slice(0, 10).map((p: ColmapPoint3D) => {
+                          if (!p) return null;
+                          return (
+                            <div key={p.id} className="data-row">
+                              <div className="data-value text-white/40">{p.id}</div>
+                              <div className="data-value text-xs">
+                                {(p.x ?? 0).toFixed(3)}, {(p.y ?? 0).toFixed(3)}, {(p.z ?? 0).toFixed(3)}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <div 
+                                  className="w-3 h-3 rounded-full border border-white/20" 
+                                  style={{ backgroundColor: `rgb(${p.r ?? 0},${p.g ?? 0},${p.b ?? 0})` }} 
+                                />
+                                <span className="data-value text-xs">{p.r ?? 0}, {p.g ?? 0}, {p.b ?? 0}</span>
+                              </div>
+                              <div className="data-value text-xs text-emerald-500/60">{(p.error ?? 0).toFixed(4)}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </section>
                   </div>
-                </CardContent>
-              </Card>
-              
-              {!data ? (
-                <p className="text-white/40 italic">No data loaded yet.</p>
-              ) : (
-                <div className="space-y-8">
-                  <section>
-                    <h3 className="col-header mb-4">Recent Camera Poses</h3>
-                    <div className="border border-white/10 rounded-lg overflow-hidden">
-                      <div className="data-row bg-white/5 font-bold">
-                        <div className="col-header">ID</div>
-                        <div className="col-header">Image Name</div>
-                        <div className="col-header">Translation</div>
-                        <div className="col-header">Quaternion</div>
-                      </div>
-                      {Array.from(data.images.values()).slice(0, 10).map((img: ColmapImage) => {
-                        if (!img) return null;
-                        return (
-                          <div key={img.id} className="data-row">
-                            <div className="data-value text-white/40">{img.id}</div>
-                            <div className="font-medium">{img.name}</div>
-                            <div className="data-value text-xs">
-                              {(img.tx ?? 0).toFixed(2)}, {(img.ty ?? 0).toFixed(2)}, {(img.tz ?? 0).toFixed(2)}
-                            </div>
-                            <div className="data-value text-xs text-white/40">
-                              {(img.qw ?? 0).toFixed(2)}, {(img.qx ?? 0).toFixed(2)}...
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </section>
-
-                  <section>
-                    <h3 className="col-header mb-4">Point Cloud Samples</h3>
-                    <div className="border border-white/10 rounded-lg overflow-hidden">
-                      <div className="data-row bg-white/5 font-bold">
-                        <div className="col-header">ID</div>
-                        <div className="col-header">Position (X, Y, Z)</div>
-                        <div className="col-header">Color (R, G, B)</div>
-                        <div className="col-header">Error</div>
-                      </div>
-                      {Array.from(data.points3D.values()).slice(0, 10).map((p: ColmapPoint3D) => {
-                        if (!p) return null;
-                        return (
-                          <div key={p.id} className="data-row">
-                            <div className="data-value text-white/40">{p.id}</div>
-                            <div className="data-value text-xs">
-                              {(p.x ?? 0).toFixed(3)}, {(p.y ?? 0).toFixed(3)}, {(p.z ?? 0).toFixed(3)}
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <div 
-                                className="w-3 h-3 rounded-full border border-white/20" 
-                                style={{ backgroundColor: `rgb(${p.r ?? 0},${p.g ?? 0},${p.b ?? 0})` }} 
-                              />
-                              <span className="data-value text-xs">{p.r ?? 0}, {p.g ?? 0}, {p.b ?? 0}</span>
-                            </div>
-                            <div className="data-value text-xs text-emerald-500/60">{(p.error ?? 0).toFixed(4)}</div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </section>
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+            </ScrollArea>
           )}
         </div>
       </main>
